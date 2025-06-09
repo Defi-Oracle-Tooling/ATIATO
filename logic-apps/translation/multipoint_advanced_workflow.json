@@ -1,0 +1,196 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "actions": {
+    "Parse_Message": {
+      "type": "Compose",
+      "inputs": "@triggerBody()"
+    },
+    "Validate_Message": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/validate-message",
+        "body": "@outputs('Parse_Message')"
+      },
+      "runAfter": {
+        "Parse_Message": ["Succeeded"]
+      }
+    },
+    "Fraud_Detection": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/check-fraud",
+        "body": "@outputs('Validate_Message')"
+      },
+      "runAfter": {
+        "Validate_Message": ["Succeeded"]
+      }
+    },
+    "Compliance_Validation": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/validate-compliance",
+        "body": "@outputs('Fraud_Detection')"
+      },
+      "runAfter": {
+        "Fraud_Detection": ["Succeeded"]
+      }
+    },
+    "Fee_Calculation": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/calculate-fee",
+        "body": "@outputs('Compliance_Validation')"
+      },
+      "runAfter": {
+        "Compliance_Validation": ["Succeeded"]
+      }
+    },
+    "Currency_Conversion": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/convert-currency",
+        "body": "@outputs('Fee_Calculation')"
+      },
+      "runAfter": {
+        "Fee_Calculation": ["Succeeded"]
+      }
+    },
+    "MultiPoint_Routing": {
+      "type": "Foreach",
+      "foreach": "@outputs('Currency_Conversion').targets",
+      "actions": {
+        "Send_To_Target": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "https://<your-app-service>/api/send-generic",
+            "body": "@item()"
+          }
+        }
+      },
+      "runAfter": {
+        "Currency_Conversion": ["Succeeded"]
+      }
+    },
+    "Store_Metadata": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/store-metadata",
+        "body": "@outputs('Currency_Conversion')"
+      },
+      "runAfter": {
+        "MultiPoint_Routing": ["Succeeded"]
+      }
+    },
+    "Exception_Handling": {
+      "type": "Scope",
+      "actions": {
+        "Handle_Validation_Error": {
+          "type": "If",
+          "expression": "@equals(outputs('Validate_Message').status, 'ValidationError')",
+          "actions": {
+            "Return_400": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 400,
+                "body": {
+                  "error": "Validation Error",
+                  "details": "@outputs('Validate_Message').errorDetails"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Duplicate": {
+          "type": "If",
+          "expression": "@equals(outputs('Validate_Message').status, 'Duplicate')",
+          "actions": {
+            "Return_409": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 409,
+                "body": {
+                  "error": "Duplicate Transaction"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Timeout": {
+          "type": "If",
+          "expression": "@equals(outputs('MultiPoint_Routing').status, 'Timeout')",
+          "actions": {
+            "Return_504": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 504,
+                "body": {
+                  "error": "Network Timeout"
+                }
+              }
+            },
+            "Send_Alert": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/notify-alert",
+                "body": {
+                  "type": "Timeout",
+                  "details": "@outputs('MultiPoint_Routing').errorDetails"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Regulatory_Hold": {
+          "type": "If",
+          "expression": "@equals(outputs('MultiPoint_Routing').status, 'OnHold')",
+          "actions": {
+            "Return_202": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 202,
+                "body": {
+                  "status": "Pending Compliance Review"
+                }
+              }
+            },
+            "Notify_Compliance": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/notify-compliance",
+                "body": {
+                  "type": "RegulatoryHold",
+                  "details": "@outputs('MultiPoint_Routing').errorDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Store_Metadata": ["Failed"]
+      }
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

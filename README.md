@@ -104,6 +104,16 @@ This repository implements a secure, scalable, and compliant translation system 
 - Integrate APIs and message mapping logic
 - Test end-to-end translation flows
 
+## Documentation Index
+
+- [System Documentation](docs/README.md)
+- [Workflows & Diagrams](WORKFLOWS.md)
+- [Infrastructure](infra/README.md)
+- [Modules](modules/README.md)
+- [Automation Scripts](scripts/README.md)
+- [Standards & Regulations](docs/standards/README.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+
 ## References
 
 - [Azure Logic Apps Documentation](https://learn.microsoft.com/azure/logic-apps/)

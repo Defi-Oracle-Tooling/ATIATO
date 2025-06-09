@@ -1,0 +1,270 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "actions": {
+    "Parse_Message": {
+      "type": "Compose",
+      "inputs": "@triggerBody()"
+    },
+    "Validate_Message": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/validate-message",
+        "body": "@outputs('Parse_Message')"
+      },
+      "runAfter": {
+        "Parse_Message": ["Succeeded"]
+      }
+    },
+    "Fraud_Detection": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/check-fraud",
+        "body": "@outputs('Validate_Message')"
+      },
+      "runAfter": {
+        "Validate_Message": ["Succeeded"]
+      }
+    },
+    "Compliance_Validation": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/validate-compliance",
+        "body": "@outputs('Fraud_Detection')"
+      },
+      "runAfter": {
+        "Fraud_Detection": ["Succeeded"]
+      }
+    },
+    "Fee_Calculation": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/calculate-fee",
+        "body": "@outputs('Compliance_Validation')"
+      },
+      "runAfter": {
+        "Compliance_Validation": ["Succeeded"]
+      }
+    },
+    "Currency_Conversion": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/convert-currency",
+        "body": "@outputs('Fee_Calculation')"
+      },
+      "runAfter": {
+        "Fee_Calculation": ["Succeeded"]
+      }
+    },
+    "Enrich_Metadata": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/enrich-metadata",
+        "body": "@outputs('Currency_Conversion')"
+      },
+      "runAfter": {
+        "Currency_Conversion": ["Succeeded"]
+      }
+    },
+    "Route_Message": {
+      "type": "Switch",
+      "expression": "@outputs('Enrich_Metadata').messageType",
+      "cases": [
+        {
+          "case": "ISO20022",
+          "actions": {
+            "Send_ISO20022": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/send-iso20022",
+                "body": "@outputs('Enrich_Metadata')"
+              }
+            }
+          }
+        },
+        {
+          "case": "SWIFT_MT",
+          "actions": {
+            "Send_SWIFT_MT": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/send-swiftmt",
+                "body": "@outputs('Enrich_Metadata')"
+              }
+            }
+          }
+        },
+        {
+          "case": "ISO_8583",
+          "actions": {
+            "Send_ISO_8583": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/send-iso8583",
+                "body": "@outputs('Enrich_Metadata')"
+              }
+            }
+          }
+        },
+        {
+          "case": "MULTI_POINT",
+          "actions": {
+            "MultiPoint_Routing": {
+              "type": "Foreach",
+              "foreach": "@outputs('Enrich_Metadata').targets",
+              "actions": {
+                "Send_To_Target": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "POST",
+                    "uri": "https://<your-app-service>/api/send-generic",
+                    "body": "@item()"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "default": {
+        "actions": {
+          "Send_Unknown": {
+            "type": "Http",
+            "inputs": {
+              "method": "POST",
+              "uri": "https://<your-app-service>/api/send-generic",
+              "body": "@outputs('Enrich_Metadata')"
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Enrich_Metadata": ["Succeeded"]
+      }
+    },
+    "Store_Metadata": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/store-metadata",
+        "body": "@outputs('Enrich_Metadata')"
+      },
+      "runAfter": {
+        "Route_Message": ["Succeeded"]
+      }
+    },
+    "Exception_Handling": {
+      "type": "Scope",
+      "actions": {
+        "Handle_Validation_Error": {
+          "type": "If",
+          "expression": "@equals(outputs('Validate_Message').status, 'ValidationError')",
+          "actions": {
+            "Return_400": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 400,
+                "body": {
+                  "error": "Validation Error",
+                  "details": "@outputs('Validate_Message').errorDetails"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Duplicate": {
+          "type": "If",
+          "expression": "@equals(outputs('Validate_Message').status, 'Duplicate')",
+          "actions": {
+            "Return_409": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 409,
+                "body": {
+                  "error": "Duplicate Transaction"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Timeout": {
+          "type": "If",
+          "expression": "@equals(outputs('Route_Message').status, 'Timeout')",
+          "actions": {
+            "Return_504": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 504,
+                "body": {
+                  "error": "Network Timeout"
+                }
+              }
+            },
+            "Send_Alert": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/notify-alert",
+                "body": {
+                  "type": "Timeout",
+                  "details": "@outputs('Route_Message').errorDetails"
+                }
+              }
+            }
+          }
+        },
+        "Handle_Regulatory_Hold": {
+          "type": "If",
+          "expression": "@equals(outputs('Route_Message').status, 'OnHold')",
+          "actions": {
+            "Return_202": {
+              "type": "Response",
+              "inputs": {
+                "statusCode": 202,
+                "body": {
+                  "status": "Pending Compliance Review"
+                }
+              }
+            },
+            "Notify_Compliance": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "https://<your-app-service>/api/notify-compliance",
+                "body": {
+                  "type": "RegulatoryHold",
+                  "details": "@outputs('Route_Message').errorDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Store_Metadata": ["Failed"]
+      }
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

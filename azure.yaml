@@ -7,8 +7,4 @@ services:
     project: logic-apps/translation
     language: python
     host: appservice
-    port: 80
-dependencies:
-  - exchange-rate-db
-  - currency-registry-db
-  - keyvault
+# removed dependencies block as it is not allowed

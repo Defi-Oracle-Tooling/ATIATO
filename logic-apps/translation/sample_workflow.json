@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "actions": {
+    "Parse_Message": {
+      "type": "Compose",
+      "inputs": "@triggerBody()"
+    },
+    "Store_Metadata": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://<your-app-service>/api/store-metadata",
+        "body": "@outputs('Parse_Message')"
+      },
+      "runAfter": {
+        "Parse_Message": ["Succeeded"]
+      }
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

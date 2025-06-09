@@ -1,0 +1,5 @@
+# Python requirements for ATIATO translation system
+pyodbc
+azure-identity
+azure-keyvault-secrets
+requests
