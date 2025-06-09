@@ -1,0 +1,14 @@
+# Azure Developer CLI configuration for translation system
+name: translation-system
+metadata:
+  template: custom
+services:
+  translation-logic-app:
+    project: logic-apps/translation
+    language: python
+    host: appservice
+    port: 80
+dependencies:
+  - exchange-rate-db
+  - currency-registry-db
+  - keyvault
